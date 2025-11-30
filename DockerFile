@@ -1,0 +1,32 @@
+# Stage 1: build
+FROM php:8.4-fpm AS base
+
+# Install system deps
+RUN apt-get update && apt-get install -y \
+    git unzip libzip-dev libonig-dev libpng-dev libicu-dev libxml2-dev \
+    libpq-dev zip curl && rm -rf /var/lib/apt/lists/*
+
+# PHP extensions
+RUN docker-php-ext-install pdo_pgsql mbstring zip gd intl xml
+
+# Install composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www/html
+
+# Copy composer files and install optimised
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --prefer-dist --no-interaction --optimize-autoloader
+
+# Copy app files
+COPY . .
+
+# Run optimizations
+RUN composer dump-autoload --optimize
+
+# Expose port if needed
+EXPOSE 8000
+
+# Start php-fpm (or use artisan serve for simplicity)
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+
