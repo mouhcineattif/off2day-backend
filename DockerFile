@@ -1,31 +1,44 @@
-# Dockerfile — PHP 8.4 + Composer + ext deps for Laravel
+# Dockerfile — PHP 8.4 FPM, composer & Laravel-friendly build (recommended)
 FROM php:8.4-fpm
 
-# install system deps & php extensions
+ARG APP_HOME=/var/www/html
+
+# install system packages and PHP extensions
 RUN apt-get update && apt-get install -y \
     git unzip libzip-dev libonig-dev libpng-dev libicu-dev libxml2-dev \
-    libpq-dev zip curl sudo \
- && docker-php-ext-install pdo_pgsql mbstring zip pcntl intl opcache xml
+    libpq-dev zip curl wget procps ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# install composer
+RUN docker-php-ext-install pdo_pgsql mbstring zip pcntl intl xml gd
+
+# install composer (official image)
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-WORKDIR /var/www/html
+# set working dir
+WORKDIR ${APP_HOME}
 
-# copy composer files and install deps
-COPY composer.json composer.lock ./
-RUN composer update
+# copy only composer files to leverage docker layer cache
+COPY composer.json composer.lock ${APP_HOME}/
 
-# copy rest of the app
-COPY . .
+# avoid running composer scripts (they call artisan) until app files are present
+ENV COMPOSER_ALLOW_SUPERUSER=1
+RUN composer install --no-dev --no-interaction --no-scripts --prefer-dist --optimize-autoloader
 
-# optimize autoload & clear caches
-RUN composer dump-autoload --optimize
-RUN php artisan route:cache || true
-RUN php artisan config:cache || true
+# copy rest of application
+COPY . ${APP_HOME}
 
-# expose port (Railway expects $PORT env; we will use artisan serve in start)
+# ensure correct permissions for storage and cache
+RUN mkdir -p storage bootstrap/cache \
+ && chown -R www-data:www-data storage bootstrap/cache \
+ && chmod -R 775 storage bootstrap/cache
+
+# now that artisan exists, run autoload/detect scripts and optimize
+RUN composer dump-autoload --optimize \
+ && php artisan package:discover --ansi || true \
+ && php artisan config:cache || true \
+ && php artisan route:cache || true
+
+# expose port for "artisan serve" (if you use it)
 EXPOSE 8000
 
-# start command — Railway will use this unless you override
+# runtime command — Railway prefers an explicit command; artisan serve is fine for small apps
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
