@@ -14,7 +14,7 @@ WORKDIR /var/www/html
 
 # copy composer files and install deps
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --no-scripts --no-interaction --optimize-autoloader
+RUN composer update
 
 # copy rest of the app
 COPY . .
